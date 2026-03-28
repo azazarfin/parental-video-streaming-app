@@ -185,6 +185,8 @@ export default function VideoPlayerScreen({ route, navigation }) {
     let endSub;
     try {
       endSub = player.addListener('playToEnd', () => {
+        // Guard: only auto-advance if the video was actually playing
+        try { if (!player || player.currentTime <= 0) return; } catch (e) { return; }
         const cur = currentVideoRef.current;
         const idx = playlist.findIndex((v) => v.googleDriveFileId === cur.googleDriveFileId);
         if (idx >= 0 && idx < playlist.length - 1) {
@@ -210,7 +212,7 @@ export default function VideoPlayerScreen({ route, navigation }) {
           const cur = currentVideoRef.current;
           AsyncStorage.setItem(
             RESUME_PREFIX + cur.googleDriveFileId,
-            JSON.stringify({ position: player.currentTime, title: cur.title, ep: cur.episodeNumber })
+            JSON.stringify({ position: player.currentTime, title: cur.title, ep: cur.episodeNumber, timestamp: Date.now() })
           );
         }
       } catch (e) {}
@@ -274,7 +276,7 @@ export default function VideoPlayerScreen({ route, navigation }) {
     if (lastSavedPositionRef.current > 0) {
       AsyncStorage.setItem(
         RESUME_PREFIX + videoFileId,
-        JSON.stringify({ position: lastSavedPositionRef.current, title: currentVideo.title, ep: currentVideo.episodeNumber })
+        JSON.stringify({ position: lastSavedPositionRef.current, title: currentVideo.title, ep: currentVideo.episodeNumber, timestamp: Date.now() })
       );
     }
     navigation.goBack();
@@ -284,7 +286,7 @@ export default function VideoPlayerScreen({ route, navigation }) {
     if (lastSavedPositionRef.current > 0) {
       AsyncStorage.setItem(
         RESUME_PREFIX + videoFileId,
-        JSON.stringify({ position: lastSavedPositionRef.current, title: currentVideo.title, ep: currentVideo.episodeNumber })
+        JSON.stringify({ position: lastSavedPositionRef.current, title: currentVideo.title, ep: currentVideo.episodeNumber, timestamp: Date.now() })
       );
     }
     try { if (playerRef.current) playerRef.current.pause(); } catch (e) {}

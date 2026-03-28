@@ -53,6 +53,24 @@ export default function UserSettings() {
     }
   };
 
+  const handleResetAll = async (userId) => {
+    const input = prompt('⚠️ This will DELETE all watch history, reset watch time, and clear the session for this user. Video publishing data will NOT be affected.\n\nType "confirm" to proceed:');
+    if (!input || input.trim().toLowerCase() !== 'confirm') {
+      if (input !== null) alert('Reset cancelled. You must type "confirm" to proceed.');
+      return;
+    }
+    try {
+      const res = await fetch(`${API_URL}/users/${userId}/reset-all`, { method: 'POST' });
+      if (!res.ok) throw new Error('Full reset failed');
+      const data = await res.json();
+      alert(`✅ Stats reset! ${data.watchHistoryDeleted} watch history records deleted.`);
+      fetchUsers();
+    } catch (err) {
+      console.error(err);
+      alert('Failed to reset all stats');
+    }
+  };
+
   if (loading) {
     return (
       <div className="glass-card" style={{ textAlign: 'center', padding: '60px 20px' }}>
@@ -99,9 +117,14 @@ export default function UserSettings() {
                     </div>
                     <p style={{ fontSize: 12, color: '#64748b', fontFamily: 'monospace' }}>ID: {user._id}</p>
                   </div>
-                  <button className="btn btn-danger btn-sm" onClick={() => handleReset(user._id)}>
-                    Reset Today
-                  </button>
+                  <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                    <button className="btn btn-danger btn-sm" onClick={() => handleReset(user._id)}>
+                      Reset Today
+                    </button>
+                    <button className="btn btn-sm" onClick={() => handleResetAll(user._id)} style={{ background: 'rgba(251,191,36,0.15)', color: '#fbbf24', border: '1px solid rgba(251,191,36,0.3)' }}>
+                      🗑 Reset All Stats
+                    </button>
+                  </div>
                 </div>
 
                 {/* Watch Progress */}

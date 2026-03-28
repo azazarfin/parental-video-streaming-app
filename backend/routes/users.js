@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
+const WatchHistory = require('../models/WatchHistory');
 const { getTodayLimit, isNewDayBD } = require('../utils/bdTime');
 
 /**
@@ -104,6 +105,38 @@ router.post('/:id/reset', async (req, res) => {
   } catch (err) {
     console.error('Error resetting user:', err);
     res.status(500).json({ error: 'Failed to reset user' });
+  }
+});
+
+/**
+ * POST /api/users/:id/reset-all
+ * Full stats reset: clears watch time, watch history, and session.
+ * Does NOT touch video/publishing data.
+ */
+router.post('/:id/reset-all', async (req, res) => {
+  try {
+    const user = await User.findById(req.params.id);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found' });
+    }
+
+    // Reset user stats
+    user.totalWatchedToday = 0;
+    user.lastWatchedDate = new Date();
+    user.activeSessionToken = null;
+    await user.save();
+
+    // Delete all watch history records for this user
+    const deleted = await WatchHistory.deleteMany({ user: user._id });
+
+    res.json({
+      message: 'Full stats reset completed.',
+      watchHistoryDeleted: deleted.deletedCount,
+      user,
+    });
+  } catch (err) {
+    console.error('Error in full reset:', err);
+    res.status(500).json({ error: 'Failed to reset stats' });
   }
 });
 

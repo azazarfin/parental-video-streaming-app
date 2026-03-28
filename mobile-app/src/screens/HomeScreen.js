@@ -114,8 +114,14 @@ export default function HomeScreen({ navigation }) {
       ? colors.warning
       : colors.danger;
 
-  // Find "continue watching" video
-  const continueVideo = videos.find((v) => resumeData[v.googleDriveFileId]);
+  // Find "continue watching" video — the one with the most recent timestamp
+  const continueVideo = videos.reduce((best, v) => {
+    const data = resumeData[v.googleDriveFileId];
+    if (!data) return best;
+    if (!best) return v;
+    const bestData = resumeData[best.googleDriveFileId];
+    return (data.timestamp || 0) > (bestData.timestamp || 0) ? v : best;
+  }, null);
   const continuePosition = continueVideo
     ? resumeData[continueVideo.googleDriveFileId]?.position
     : 0;
@@ -197,7 +203,7 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity
             style={[styles.continueCard, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
-            onPress={() => navigation.navigate('VideoPlayer', {
+            onPress={() => navigation.push('VideoPlayer', {
               video: continueVideo, userId: user._id, sessionToken, playlist: videos
             })}
           >
@@ -226,7 +232,7 @@ export default function HomeScreen({ navigation }) {
       <TouchableOpacity
         style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
         activeOpacity={0.7}
-        onPress={() => navigation.navigate('VideoPlayer', {
+        onPress={() => navigation.push('VideoPlayer', {
           video: item, userId: user._id, sessionToken, playlist: videos,
         })}
       >
