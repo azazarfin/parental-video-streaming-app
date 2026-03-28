@@ -198,7 +198,7 @@ export default function HomeScreen({ navigation }) {
             style={[styles.continueCard, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
             onPress={() => navigation.navigate('VideoPlayer', {
-              video: continueVideo, userId: user._id, sessionToken
+              video: continueVideo, userId: user._id, sessionToken, playlist: videos
             })}
           >
             <View style={styles.continueLeft}>
@@ -227,7 +227,7 @@ export default function HomeScreen({ navigation }) {
         style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
         activeOpacity={0.7}
         onPress={() => navigation.navigate('VideoPlayer', {
-          video: item, userId: user._id, sessionToken,
+          video: item, userId: user._id, sessionToken, playlist: videos,
         })}
       >
         <View style={[styles.epBadge, { backgroundColor: colors.primaryDark }]}>

@@ -58,9 +58,7 @@ function AppNavigator() {
               component={VideoPlayerScreen}
               options={{
                 headerShown: false,
-                presentation: 'fullScreenModal',
-                animation: 'fade',
-                orientation: 'all',
+                animation: 'slide_from_bottom',
               }}
             />
           </>
