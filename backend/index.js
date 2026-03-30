@@ -6,8 +6,18 @@ const cors = require('cors');
 const app = express();
 const PORT = process.env.PORT || 5000;
 
-// Configure CORS to accept requests from any origin for now
-app.use(cors());
+// Configure CORS to accept requests from specific origin
+const allowedOrigins = ['https://streamingapp-admin.netlify.app', 'http://localhost:5173', 'http://localhost:3000'];
+app.use(cors({
+  origin: function(origin, callback) {
+    if (!origin || allowedOrigins.indexOf(origin) !== -1) {
+      callback(null, true);
+    } else {
+      callback(new Error('Not allowed by CORS'));
+    }
+  },
+  credentials: true
+}));
 app.use(express.json());
 
 // Set up MongoDB connection
