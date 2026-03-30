@@ -36,6 +36,7 @@ const usersRoutes = require('./routes/users');
 const videosRoutes = require('./routes/videos');
 const analyticsRoutes = require('./routes/analytics');
 const driveRoutes = require('./routes/drive');
+const progressRoutes = require('./routes/progress');
 
 app.use('/api/auth', authRoutes);
 app.use('/api/stream', streamRoutes);
@@ -44,6 +45,7 @@ app.use('/api/users', usersRoutes);
 app.use('/api/videos', videosRoutes);
 app.use('/api/analytics', analyticsRoutes);
 app.use('/api/drive', driveRoutes);
+app.use('/api/progress', progressRoutes);
 
 // Cron jobs
 const { startVideoPublisher } = require('./cron/videoPublisher');

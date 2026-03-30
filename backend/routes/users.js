@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const User = require('../models/User');
 const WatchHistory = require('../models/WatchHistory');
+const PlaybackProgress = require('../models/PlaybackProgress');
 const { getTodayLimit, isNewDayBD } = require('../utils/bdTime');
 
 /**
@@ -129,12 +130,16 @@ router.post('/:id/reset-all', async (req, res) => {
     user.lastStatsReset = new Date();
     await user.save();
 
-    // Delete all watch history records for this user
-    const deleted = await WatchHistory.deleteMany({ user: user._id });
+    // Delete all watch history and synced playback progress for this user
+    const [deletedHistory, deletedProgress] = await Promise.all([
+      WatchHistory.deleteMany({ user: user._id }),
+      PlaybackProgress.deleteMany({ user: user._id }),
+    ]);
 
     res.json({
       message: 'Full stats reset completed.',
-      watchHistoryDeleted: deleted.deletedCount,
+      watchHistoryDeleted: deletedHistory.deletedCount,
+      playbackProgressDeleted: deletedProgress.deletedCount,
       user,
     });
   } catch (err) {

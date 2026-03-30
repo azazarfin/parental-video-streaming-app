@@ -17,13 +17,20 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import * as ScreenCapture from 'expo-screen-capture';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import * as NavigationBar from 'expo-navigation-bar';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import {
+  buildResumeEntry,
+  fetchRemoteResumeData,
+  loadLocalResumeData,
+  mergeResumeMaps,
+  saveLocalResumeEntry,
+  saveLocalResumeMap,
+  syncRemoteResumeEntries,
+} from '../utils/playbackProgress';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.10.100:5000/api';
-const RESUME_PREFIX = '@resume_';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 const VIDEO_HEIGHT = (SCREEN_WIDTH * 9) / 16;
 const PLAYLIST_PAGE_SIZE = 30;
@@ -68,30 +75,51 @@ export default function VideoPlayerScreen({ route, navigation }) {
   const lastSavedPositionRef = useRef(0);
   const playerRef = useRef(null);
   const currentVideoRef = useRef(currentVideo);
+  const [resumeDataState, setResumeDataState] = useState({});
 
   useEffect(() => {
     currentVideoRef.current = currentVideo;
   }, [currentVideo]);
 
-  const persistResume = useCallback((videoItem, position) => {
-    if (!videoItem || !position || position <= 0) return;
+  const persistResume = useCallback((videoItem, position, timestamp = Date.now()) => {
+    if (!videoItem) return;
 
-    const payload = {
+    const payload = buildResumeEntry({
       position,
       title: videoItem.title,
-      ep: videoItem.episodeNumber,
-      timestamp: Date.now(),
-    };
+      episodeNumber: videoItem.episodeNumber,
+      timestamp,
+    });
+    if (!payload) return;
 
-    lastSavedPositionRef.current = position;
+    lastSavedPositionRef.current = payload.position;
     setResumeDataState((prev) => ({
       ...prev,
       [videoItem.googleDriveFileId]: payload,
     }));
-    AsyncStorage.setItem(RESUME_PREFIX + videoItem.googleDriveFileId, JSON.stringify(payload)).catch(() => {});
-  }, []);
 
-  const [resumeDataState, setResumeDataState] = useState({});
+    saveLocalResumeEntry(videoItem.googleDriveFileId, payload).catch(() => {});
+
+    if (userId && sessionToken) {
+      syncRemoteResumeEntries(API_URL, userId, sessionToken, [
+        {
+          googleDriveFileId: videoItem.googleDriveFileId,
+          ...payload,
+        },
+      ])
+        .then((syncedEntries) => {
+          const syncedEntry = syncedEntries[videoItem.googleDriveFileId];
+          if (!syncedEntry) return;
+
+          setResumeDataState((prev) => ({
+            ...prev,
+            [videoItem.googleDriveFileId]: syncedEntry,
+          }));
+          saveLocalResumeEntry(videoItem.googleDriveFileId, syncedEntry).catch(() => {});
+        })
+        .catch(() => {});
+    }
+  }, [userId, sessionToken]);
 
   const handleLimitReached = useCallback(() => {
     setLimitReached(true);
@@ -198,28 +226,50 @@ export default function VideoPlayerScreen({ route, navigation }) {
   }, [playlistHasMore, playlistLoading, playlistPage, fetchPlaylist]);
 
   const loadResumeData = useCallback(async () => {
+    const localData = await loadLocalResumeData();
+
+    if (!userId || !sessionToken) {
+      setResumeDataState(localData);
+      return localData;
+    }
+
+    let remoteData = {};
     try {
-      const keys = await AsyncStorage.getAllKeys();
-      const resumeKeys = keys.filter((key) => key.startsWith(RESUME_PREFIX));
+      remoteData = await fetchRemoteResumeData(API_URL, userId, sessionToken);
+    } catch (err) {
+      setResumeDataState(localData);
+      return localData;
+    }
 
-      if (resumeKeys.length === 0) {
-        setResumeDataState({});
-        return;
+    const mergedData = mergeResumeMaps(remoteData, localData);
+    const newerLocalEntries = Object.entries(localData)
+      .filter(([videoId, entry]) => {
+        const remoteEntry = remoteData[videoId];
+        return !remoteEntry || entry.timestamp > remoteEntry.timestamp;
+      })
+      .map(([googleDriveFileId, entry]) => ({
+        googleDriveFileId,
+        ...entry,
+      }));
+
+    if (newerLocalEntries.length > 0) {
+      try {
+        const syncedEntries = await syncRemoteResumeEntries(
+          API_URL,
+          userId,
+          sessionToken,
+          newerLocalEntries
+        );
+        Object.assign(mergedData, mergeResumeMaps(mergedData, syncedEntries));
+      } catch (err) {
+        // Keep merged local/server state even if upload fails
       }
+    }
 
-      const pairs = await AsyncStorage.multiGet(resumeKeys);
-      const data = {};
-
-      pairs.forEach(([key, value]) => {
-        if (!value) return;
-        try {
-          data[key.replace(RESUME_PREFIX, '')] = JSON.parse(value);
-        } catch (e) {}
-      });
-
-      setResumeDataState(data);
-    } catch (err) {}
-  }, []);
+    setResumeDataState(mergedData);
+    await saveLocalResumeMap(mergedData);
+    return mergedData;
+  }, [userId, sessionToken]);
 
   const switchVideo = useCallback((newVideo) => {
     if (!newVideo || newVideo.googleDriveFileId === currentVideoRef.current.googleDriveFileId) return;
@@ -280,6 +330,12 @@ export default function VideoPlayerScreen({ route, navigation }) {
           return;
         }
 
+        const mergedResumeData = await loadResumeData();
+        const existingResume = mergedResumeData[videoFileId];
+        if (existingResume) {
+          resumePositionRef.current = existingResume.position || 0;
+        }
+
         const endpoint =
           `${API_URL}/stream/${encodeURIComponent(videoFileId)}` +
           `?userId=${encodeURIComponent(userId)}` +
@@ -307,19 +363,10 @@ export default function VideoPlayerScreen({ route, navigation }) {
       }
     };
 
-    AsyncStorage.getItem(RESUME_PREFIX + videoFileId).then((value) => {
-      if (!value) return;
-
-      try {
-        const parsed = JSON.parse(value);
-        resumePositionRef.current = parsed.position || 0;
-      } catch (e) {}
-    });
-
     if (!limitReached) {
       fetchStreamSource();
     }
-  }, [videoFileId, userId, sessionToken, limitReached, logout, handleLimitReached]);
+  }, [videoFileId, userId, sessionToken, limitReached, logout, handleLimitReached, loadResumeData]);
 
   const player = useVideoPlayer(videoSource, (instance) => {
     instance.loop = false;

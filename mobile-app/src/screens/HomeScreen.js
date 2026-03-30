@@ -8,13 +8,21 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
+import {
+  RESUME_PREFIX,
+  clearLocalResumeData,
+  fetchRemoteResumeData,
+  loadLocalResumeData,
+  mergeResumeMaps,
+  saveLocalResumeMap,
+  syncRemoteResumeEntries,
+} from '../utils/playbackProgress';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.10.100:5000/api';
-const RESUME_PREFIX = '@resume_';
 const PAGE_SIZE = 30;
 
 export default function HomeScreen({ navigation }) {
-  const { user, logout } = useAuth();
+  const { user, sessionToken, logout } = useAuth();
   const { colors } = useTheme();
 
   // Video list state (paginated)
@@ -135,7 +143,7 @@ export default function HomeScreen({ navigation }) {
           const allKeys = await AsyncStorage.getAllKeys();
           const resumeKeys = allKeys.filter((k) => k.startsWith(RESUME_PREFIX));
           if (resumeKeys.length > 0) {
-            await AsyncStorage.multiRemove(resumeKeys);
+            await clearLocalResumeData();
           }
           await AsyncStorage.setItem('@lastStatsReset', String(serverReset));
           setResumeData({});
@@ -147,24 +155,50 @@ export default function HomeScreen({ navigation }) {
   };
 
   const loadResumeData = useCallback(async () => {
-    try {
-      const keys = await AsyncStorage.getAllKeys();
-      const resumeKeys = keys.filter((k) => k.startsWith(RESUME_PREFIX));
-      if (resumeKeys.length > 0) {
-        const pairs = await AsyncStorage.multiGet(resumeKeys);
-        const data = {};
-        pairs.forEach(([key, val]) => {
-          if (val) {
-            const videoId = key.replace(RESUME_PREFIX, '');
-            data[videoId] = JSON.parse(val);
-          }
-        });
-        setResumeData(data);
-      }
-    } catch (err) {
-      // silent
+    const localData = await loadLocalResumeData();
+
+    if (!user?._id || !sessionToken) {
+      setResumeData(localData);
+      return localData;
     }
-  }, []);
+
+    let remoteData = {};
+    try {
+      remoteData = await fetchRemoteResumeData(API_URL, user._id, sessionToken);
+    } catch (err) {
+      setResumeData(localData);
+      return localData;
+    }
+
+    const mergedData = mergeResumeMaps(remoteData, localData);
+    const newerLocalEntries = Object.entries(localData)
+      .filter(([videoId, entry]) => {
+        const remoteEntry = remoteData[videoId];
+        return !remoteEntry || entry.timestamp > remoteEntry.timestamp;
+      })
+      .map(([googleDriveFileId, entry]) => ({
+        googleDriveFileId,
+        ...entry,
+      }));
+
+    if (newerLocalEntries.length > 0) {
+      try {
+        const syncedEntries = await syncRemoteResumeEntries(
+          API_URL,
+          user._id,
+          sessionToken,
+          newerLocalEntries
+        );
+        Object.assign(mergedData, mergeResumeMaps(mergedData, syncedEntries));
+      } catch (err) {
+        // Keep merged local/server state even if upload fails
+      }
+    }
+
+    setResumeData(mergedData);
+    await saveLocalResumeMap(mergedData);
+    return mergedData;
+  }, [user, sessionToken]);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
