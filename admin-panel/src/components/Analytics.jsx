@@ -197,14 +197,14 @@ export default function Analytics() {
       const x = chartLeft + i * (barWidth + 4) + 2;
       const y = chartBottom - barH;
 
-      // Gradient bar
+      // Create gradient — use different colors for selected bar
       const gradient = ctx.createLinearGradient(x, y, x, chartBottom);
-      gradient.addColorStop(0, '#818cf8');
-      gradient.addColorStop(1, '#4f46e5');
-      // Determine context color: hover/selected effects could be added later, for now solid
       if (selectedDate === d.date) {
         gradient.addColorStop(0, '#f59e0b');
         gradient.addColorStop(1, '#d97706');
+      } else {
+        gradient.addColorStop(0, '#818cf8');
+        gradient.addColorStop(1, '#4f46e5');
       }
 
       ctx.fillStyle = gradient;

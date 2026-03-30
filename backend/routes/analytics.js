@@ -138,21 +138,21 @@ router.get('/hourly', async (req, res) => {
       sessions: 0,
     }));
 
-    // Find sessions within roughly a 2-day global window to guarantee we don't miss GMT offsets
-    const startDateRaw = new Date();
-    startDateRaw.setDate(startDateRaw.getDate() - 30); // simplistic way to gather all and filter memory
+    // Calculate precise UTC window for the target BD date (GMT+6)
+    // BD date 2024-01-15 00:00:00+06 = UTC 2024-01-14 18:00:00
+    // BD date 2024-01-15 23:59:59+06 = UTC 2024-01-15 17:59:59
+    const startUTC = new Date(`${targetDate}T00:00:00+06:00`);
+    const endUTC = new Date(`${targetDate}T23:59:59.999+06:00`);
 
-    const history = await WatchHistory.find({ watchedAt: { $gte: startDateRaw } });
+    const history = await WatchHistory.find({
+      watchedAt: { $gte: startUTC, $lte: endUTC },
+    });
 
     history.forEach((h) => {
       const bdTime = new Date(new Date(h.watchedAt).getTime() + 6 * 60 * 60 * 1000);
-      const dateStr = bdTime.toISOString().slice(0, 10);
-
-      if (dateStr === targetDate) {
-        const hour = bdTime.getUTCHours();
-        hourlyData[hour].minutes += (h.durationSeconds / 60);
-        hourlyData[hour].sessions += 1;
-      }
+      const hour = bdTime.getUTCHours();
+      hourlyData[hour].minutes += (h.durationSeconds / 60);
+      hourlyData[hour].sessions += 1;
     });
 
     return res.json(hourlyData);

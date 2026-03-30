@@ -17,7 +17,6 @@ const { getBangladeshDayName, getTodayLimit, isNewDayBD } = require('../utils/bd
  */
 router.post('/', async (req, res) => {
   try {
-    console.log('Heartbeat received:', req.body);
     const { userId, duration, sessionToken, videoId } = req.body;
 
     if (!userId || duration == null) {

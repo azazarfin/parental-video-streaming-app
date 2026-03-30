@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity, StyleSheet,
   ActivityIndicator, RefreshControl, TextInput
@@ -11,39 +11,101 @@ import { useTheme } from '../context/ThemeContext';
 
 const API_URL = process.env.EXPO_PUBLIC_API_URL || 'http://192.168.10.100:5000/api';
 const RESUME_PREFIX = '@resume_';
+const PAGE_SIZE = 30;
 
 export default function HomeScreen({ navigation }) {
-  const { user, sessionToken, logout, updateUser } = useAuth();
+  const { user, logout } = useAuth();
   const { colors } = useTheme();
+
+  // Video list state (paginated)
   const [videos, setVideos] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
+
+  // Search state
+  const [searchQuery, setSearchQuery] = useState('');
+  const searchTimerRef = useRef(null);
+
+  // Resume & watch info
   const [resumeData, setResumeData] = useState({});
   const [watchInfo, setWatchInfo] = useState({
     totalWatchedToday: user?.totalWatchedToday || 0,
     dailyLimit: 60,
   });
 
-  // Use ref to always have the latest user._id inside intervals
   const userIdRef = useRef(user?._id);
   useEffect(() => { userIdRef.current = user?._id; }, [user]);
 
+  // ── Fetch videos (paginated, with search) ──
+  const fetchVideos = useCallback(async (pageNum = 1, query = '', append = false) => {
+    try {
+      if (pageNum === 1 && !append) setLoading(true);
+      else setLoadingMore(true);
+
+      const params = new URLSearchParams({
+        available: 'true',
+        page: String(pageNum),
+        limit: String(PAGE_SIZE),
+      });
+      if (query.trim()) params.append('q', query.trim());
+
+      const res = await axios.get(`${API_URL}/videos?${params.toString()}`);
+      const data = res.data;
+
+      if (append) {
+        setVideos(prev => [...prev, ...data.videos]);
+      } else {
+        setVideos(data.videos);
+      }
+      setPage(data.page);
+      setHasMore(data.hasMore);
+      setTotalCount(data.totalCount);
+    } catch (err) {
+      console.error('Error fetching videos:', err);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+    }
+  }, []);
+
+  // Initial load
   useEffect(() => {
-    fetchVideos();
+    fetchVideos(1, '');
     fetchWatchInfo();
     loadResumeData();
   }, []);
 
-  // Real-time watch time polling every 15s
+  // ── Debounced search — triggers server-side query ──
+  const handleSearchChange = useCallback((text) => {
+    setSearchQuery(text);
+    if (searchTimerRef.current) clearTimeout(searchTimerRef.current);
+    searchTimerRef.current = setTimeout(() => {
+      fetchVideos(1, text, false);
+    }, 400);
+  }, [fetchVideos]);
+
+  // Cleanup search timer
   useEffect(() => {
-    const interval = setInterval(() => {
-      fetchWatchInfo();
-    }, 15000);
+    return () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); };
+  }, []);
+
+  // ── Load more on scroll ──
+  const handleLoadMore = useCallback(() => {
+    if (!hasMore || loadingMore || loading) return;
+    fetchVideos(page + 1, searchQuery, true);
+  }, [hasMore, loadingMore, loading, page, searchQuery, fetchVideos]);
+
+  // ── Watch time polling (30s instead of 15s — less aggressive) ──
+  useEffect(() => {
+    const interval = setInterval(fetchWatchInfo, 30000);
     return () => clearInterval(interval);
   }, []);
 
-  // Refresh on focus (coming back from video player)
+  // Refresh on focus
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       fetchWatchInfo();
@@ -51,17 +113,6 @@ export default function HomeScreen({ navigation }) {
     });
     return unsubscribe;
   }, [navigation]);
-
-  const fetchVideos = async () => {
-    try {
-      const videoRes = await axios.get(`${API_URL}/videos?available=true`);
-      setVideos(videoRes.data);
-    } catch (err) {
-      console.error('Error fetching videos:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const fetchWatchInfo = async () => {
     try {
@@ -73,12 +124,29 @@ export default function HomeScreen({ navigation }) {
         totalWatchedToday: u.totalWatchedToday || 0,
         dailyLimit: u.todayLimit || 60,
       });
+
+      // Check if admin has reset stats
+      if (u.lastStatsReset) {
+        const serverReset = new Date(u.lastStatsReset).getTime();
+        const localReset = await AsyncStorage.getItem('@lastStatsReset');
+        const localResetTime = localReset ? Number(localReset) : 0;
+
+        if (serverReset > localResetTime) {
+          const allKeys = await AsyncStorage.getAllKeys();
+          const resumeKeys = allKeys.filter((k) => k.startsWith(RESUME_PREFIX));
+          if (resumeKeys.length > 0) {
+            await AsyncStorage.multiRemove(resumeKeys);
+          }
+          await AsyncStorage.setItem('@lastStatsReset', String(serverReset));
+          setResumeData({});
+        }
+      }
     } catch (err) {
-      console.log('Watch info poll failed:', err.message);
+      // Watch info poll failed — silent
     }
   };
 
-  const loadResumeData = async () => {
+  const loadResumeData = useCallback(async () => {
     try {
       const keys = await AsyncStorage.getAllKeys();
       const resumeKeys = keys.filter((k) => k.startsWith(RESUME_PREFIX));
@@ -96,48 +164,68 @@ export default function HomeScreen({ navigation }) {
     } catch (err) {
       // silent
     }
-  };
+  }, []);
 
   const onRefresh = useCallback(async () => {
     setRefreshing(true);
-    await Promise.all([fetchVideos(), fetchWatchInfo(), loadResumeData()]);
+    await Promise.all([
+      fetchVideos(1, searchQuery, false),
+      fetchWatchInfo(),
+      loadResumeData(),
+    ]);
     setRefreshing(false);
-  }, []);
+  }, [fetchVideos, searchQuery, loadResumeData]);
 
-  const progressPct = watchInfo.dailyLimit > 0
-    ? Math.min((watchInfo.totalWatchedToday / watchInfo.dailyLimit) * 100, 100)
-    : 0;
-
-  const progressColor = progressPct < 50
-    ? colors.success
-    : progressPct < 80
-      ? colors.warning
-      : colors.danger;
-
-  // Find "continue watching" video — the one with the most recent timestamp
-  const continueVideo = videos.reduce((best, v) => {
-    const data = resumeData[v.googleDriveFileId];
-    if (!data) return best;
-    if (!best) return v;
-    const bestData = resumeData[best.googleDriveFileId];
-    return (data.timestamp || 0) > (bestData.timestamp || 0) ? v : best;
-  }, null);
-  const continuePosition = continueVideo
-    ? resumeData[continueVideo.googleDriveFileId]?.position
-    : 0;
-
-  const filteredVideos = videos.filter((v) => 
-    (v.title && v.title.toLowerCase().includes(searchQuery.toLowerCase())) || 
-    (v.episodeNumber && String(v.episodeNumber).includes(searchQuery))
+  // ── Memoized computations ──
+  const progressPct = useMemo(() =>
+    watchInfo.dailyLimit > 0
+      ? Math.min((watchInfo.totalWatchedToday / watchInfo.dailyLimit) * 100, 100)
+      : 0,
+    [watchInfo.totalWatchedToday, watchInfo.dailyLimit]
   );
 
-  const formatTime = (seconds) => {
+  const progressColor = useMemo(() =>
+    progressPct < 50 ? colors.success : progressPct < 80 ? colors.warning : colors.danger,
+    [progressPct, colors]
+  );
+
+  const continueVideo = useMemo(() =>
+    videos.reduce((best, v) => {
+      const data = resumeData[v.googleDriveFileId];
+      if (!data) return best;
+      if (!best) return v;
+      const bestData = resumeData[best.googleDriveFileId];
+      return (data.timestamp || 0) > (bestData.timestamp || 0) ? v : best;
+    }, null),
+    [videos, resumeData]
+  );
+
+  const continuePosition = useMemo(() =>
+    continueVideo ? resumeData[continueVideo.googleDriveFileId]?.position : 0,
+    [continueVideo, resumeData]
+  );
+
+  const formatTime = useCallback((seconds) => {
     const m = Math.floor(seconds / 60);
     const s = Math.floor(seconds % 60);
     return `${m}:${s.toString().padStart(2, '0')}`;
-  };
+  }, []);
 
-  const renderHeader = () => (
+  // ── Navigate to video (lightweight params — no full playlist) ──
+  const navigateToVideo = useCallback((video) => {
+    navigation.push('VideoPlayer', {
+      video: {
+        _id: video._id,
+        googleDriveFileId: video.googleDriveFileId,
+        title: video.title,
+        episodeNumber: video.episodeNumber,
+      },
+      userId: user._id,
+    });
+  }, [navigation, user]);
+
+  // ── Memoized render functions ──
+  const renderHeader = useCallback(() => (
     <View>
       {/* Top Bar */}
       <View style={[styles.topBar, { backgroundColor: colors.surface, borderBottomColor: colors.cardBorder }]}>
@@ -165,10 +253,10 @@ export default function HomeScreen({ navigation }) {
           placeholder="Search videos..."
           placeholderTextColor={colors.textMuted}
           value={searchQuery}
-          onChangeText={setSearchQuery}
+          onChangeText={handleSearchChange}
         />
         {searchQuery.length > 0 && (
-          <TouchableOpacity onPress={() => setSearchQuery('')} style={{ padding: 4 }}>
+          <TouchableOpacity onPress={() => handleSearchChange('')} style={{ padding: 4 }}>
             <Text style={{ fontSize: 16, color: colors.textMuted }}>✕</Text>
           </TouchableOpacity>
         )}
@@ -203,9 +291,7 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity
             style={[styles.continueCard, { backgroundColor: colors.primary }]}
             activeOpacity={0.85}
-            onPress={() => navigation.push('VideoPlayer', {
-              video: continueVideo, userId: user._id, sessionToken, playlist: videos
-            })}
+            onPress={() => navigateToVideo(continueVideo)}
           >
             <View style={styles.continueLeft}>
               <Text style={styles.continueEp}>EP {continueVideo.episodeNumber}</Text>
@@ -220,21 +306,24 @@ export default function HomeScreen({ navigation }) {
       )}
 
       {/* Episodes Header */}
-      <Text style={[styles.sectionTitle, { color: colors.text, marginHorizontal: 16, marginTop: 8 }]}>
-        Episodes
-      </Text>
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline', marginHorizontal: 16, marginTop: 8 }}>
+        <Text style={[styles.sectionTitle, { color: colors.text }]}>
+          Episodes
+        </Text>
+        <Text style={{ fontSize: 12, color: colors.textMuted }}>
+          {totalCount} total
+        </Text>
+      </View>
     </View>
-  );
+  ), [colors, user, searchQuery, watchInfo, progressPct, progressColor, continueVideo, continuePosition, totalCount, handleSearchChange, navigateToVideo, formatTime, logout]);
 
-  const renderItem = ({ item }) => {
+  const renderItem = useCallback(({ item }) => {
     const hasResume = resumeData[item.googleDriveFileId];
     return (
       <TouchableOpacity
         style={[styles.card, { backgroundColor: colors.card, borderColor: colors.cardBorder }]}
         activeOpacity={0.7}
-        onPress={() => navigation.push('VideoPlayer', {
-          video: item, userId: user._id, sessionToken, playlist: videos,
-        })}
+        onPress={() => navigateToVideo(item)}
       >
         <View style={[styles.epBadge, { backgroundColor: colors.primaryDark }]}>
           <Text style={styles.epNum}>{item.episodeNumber}</Text>
@@ -253,7 +342,19 @@ export default function HomeScreen({ navigation }) {
         </View>
       </TouchableOpacity>
     );
-  };
+  }, [colors, resumeData, navigateToVideo, formatTime]);
+
+  const renderFooter = useCallback(() => {
+    if (!loadingMore) return null;
+    return (
+      <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={{ color: colors.textMuted, fontSize: 12, marginTop: 6 }}>Loading more episodes...</Text>
+      </View>
+    );
+  }, [loadingMore, colors]);
+
+  const keyExtractor = useCallback((item) => item._id, []);
 
   if (loading) {
     return (
@@ -266,10 +367,11 @@ export default function HomeScreen({ navigation }) {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: colors.background }]} edges={['top']}>
       <FlatList
-        data={filteredVideos}
-        keyExtractor={(item) => item._id}
+        data={videos}
+        keyExtractor={keyExtractor}
         renderItem={renderItem}
-        ListHeaderComponent={renderHeader()}
+        ListHeaderComponent={renderHeader}
+        ListFooterComponent={renderFooter}
         keyboardShouldPersistTaps="handled"
         ListEmptyComponent={
           <Text style={[styles.emptyText, { color: colors.textMuted }]}>
@@ -277,6 +379,12 @@ export default function HomeScreen({ navigation }) {
           </Text>
         }
         contentContainerStyle={{ paddingBottom: 30 }}
+        onEndReached={handleLoadMore}
+        onEndReachedThreshold={0.5}
+        initialNumToRender={15}
+        maxToRenderPerBatch={10}
+        windowSize={7}
+        removeClippedSubviews={true}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}

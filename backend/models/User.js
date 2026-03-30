@@ -28,6 +28,11 @@ const userSchema = new mongoose.Schema({
   lastWatchedDate: {
     type: Date,
     default: Date.now,
+  },
+  // Timestamp of last full stats reset (used by mobile app to clear local resume data)
+  lastStatsReset: {
+    type: Date,
+    default: null,
   }
 }, { timestamps: true });
 

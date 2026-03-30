@@ -10,16 +10,18 @@ const { getTodayLimit, isNewDayBD } = require('../utils/bdTime');
  */
 router.get('/', async (req, res) => {
   try {
-    const users = await User.find().sort({ createdAt: -1 });
-    
-    // Proactively reset any users if their last watch time was on a previous day (BD time)
-    for (let u of users) {
-      if (isNewDayBD(u.lastWatchedDate) && u.totalWatchedToday > 0) {
-        u.totalWatchedToday = 0;
-        await u.save();
-      }
-    }
+    // Batch-reset users whose last watch was on a previous day (BD time)
+    // Calculate today's start in UTC (midnight BD = 18:00 UTC previous day)
+    const bdNow = new Date(Date.now() + 6 * 60 * 60 * 1000);
+    const todayStr = bdNow.toISOString().slice(0, 10);
+    const todayStartUTC = new Date(`${todayStr}T00:00:00+06:00`);
 
+    await User.updateMany(
+      { totalWatchedToday: { $gt: 0 }, lastWatchedDate: { $lt: todayStartUTC } },
+      { $set: { totalWatchedToday: 0 } }
+    );
+
+    const users = await User.find().sort({ createdAt: -1 });
     res.json(users);
   } catch (err) {
     console.error('Error fetching users:', err);
@@ -73,7 +75,7 @@ router.put('/:id', async (req, res) => {
     const user = await User.findByIdAndUpdate(
       req.params.id,
       { $set: updates },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!user) {
@@ -124,6 +126,7 @@ router.post('/:id/reset-all', async (req, res) => {
     user.totalWatchedToday = 0;
     user.lastWatchedDate = new Date();
     user.activeSessionToken = null;
+    user.lastStatsReset = new Date();
     await user.save();
 
     // Delete all watch history records for this user

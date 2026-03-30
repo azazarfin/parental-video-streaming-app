@@ -5,10 +5,7 @@ const Video = require('../models/Video');
 async function fixDuplicates() {
   try {
     console.log('Connecting to MongoDB...', process.env.MONGODB_URI);
-    await mongoose.connect(process.env.MONGODB_URI, {
-      useNewUrlParser: true,
-      useUnifiedTopology: true,
-    });
+    await mongoose.connect(process.env.MONGODB_URI);
     console.log('Connected.');
 
     const allVideos = await Video.find({}).sort({ createdAt: 1 });

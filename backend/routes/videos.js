@@ -4,13 +4,52 @@ const Video = require('../models/Video');
 
 /**
  * GET /api/videos
- * Returns all videos. Supports ?available=true filtering.
+ * Returns videos with pagination and search support.
+ *
+ * Query params:
+ *   available=true   → only published videos
+ *   page=1           → page number (1-indexed)
+ *   limit=30         → items per page (default 30, max 100)
+ *   q=naruto         → search by title or episode number
+ *
+ * Response: { videos: [...], page, totalPages, totalCount, hasMore }
  */
 router.get('/', async (req, res) => {
   try {
     const filter = req.query.available === 'true' ? { isAvailable: true } : {};
-    const videos = await Video.find(filter).sort({ episodeNumber: 1 });
-    res.json(videos);
+
+    // Search support
+    const q = (req.query.q || '').trim();
+    if (q) {
+      const epNum = Number(q);
+      if (!isNaN(epNum) && String(epNum) === q) {
+        // Exact episode number search
+        filter.episodeNumber = epNum;
+      } else {
+        // Title text search (case-insensitive)
+        filter.title = { $regex: q, $options: 'i' };
+      }
+    }
+
+    // Pagination
+    const page = Math.max(1, parseInt(req.query.page) || 1);
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    const skip = (page - 1) * limit;
+
+    const [videos, totalCount] = await Promise.all([
+      Video.find(filter).sort({ episodeNumber: 1 }).skip(skip).limit(limit),
+      Video.countDocuments(filter),
+    ]);
+
+    const totalPages = Math.ceil(totalCount / limit);
+
+    res.json({
+      videos,
+      page,
+      totalPages,
+      totalCount,
+      hasMore: page < totalPages,
+    });
   } catch (err) {
     console.error('Error fetching videos:', err);
     res.status(500).json({ error: 'Failed to fetch videos' });

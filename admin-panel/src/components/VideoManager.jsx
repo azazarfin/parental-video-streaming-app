@@ -21,9 +21,10 @@ export default function VideoManager() {
 
   const fetchVideos = async () => {
     try {
-      const res = await fetch(`${API_URL}/videos`);
+      const res = await fetch(`${API_URL}/videos?limit=1000`);
       if (!res.ok) throw new Error('Failed');
-      setVideos(await res.json());
+      const data = await res.json();
+      setVideos(data.videos || []);
       setSelectedVideos([]);
     } catch (err) {
       console.error(err);

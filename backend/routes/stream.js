@@ -1,35 +1,38 @@
 const express = require('express');
 const router = express.Router();
-const { getDriveClient } = require('../services/googleDrive');
+const { getDriveClient, resetDriveClient } = require('../services/googleDrive');
 const checkWatchLimit = require('../middleware/watchLimit');
 
 /**
  * GET /api/stream/:videoId
  *
- * Proxies a video file from Google Drive to the client.
- * Supports HTTP Range headers so the player can seek & buffer.
- * The checkWatchLimit middleware runs first to enforce parental controls.
+ * Returns a short-lived Google Drive media URL and token.
+ * The mobile app streams directly from Google Drive to avoid
+ * backend bandwidth costs on free hosting.
  */
 router.get('/:videoId', checkWatchLimit, async (req, res) => {
   const { videoId } = req.params;
 
   try {
-    const { authClient } = getDriveClient();
-    
-    // 1. Fetch a short-lived access token from the Service Account
-    const authResponse = await authClient.getAccessToken();
-    const token = authResponse.token;
+    if (req.query.forceRefresh === 'true') {
+      resetDriveClient();
+    }
 
-    // 2. Send the token and the direct Google Drive media link back to the client.
-    // The mobile app will stream DIRECTLY from Google Drive, saving 100% of our backend bandwidth!
+    const { authClient } = getDriveClient();
+    const authResponse = await authClient.getAccessToken();
+    const token = typeof authResponse === 'string' ? authResponse : authResponse?.token;
+
+    if (!token) {
+      throw new Error('Failed to obtain a Google Drive access token.');
+    }
+
     return res.json({
-      url: `https://www.googleapis.com/drive/v3/files/${videoId}?alt=media&supportsAllDrives=true`,
-      token
+      url: `https://www.googleapis.com/drive/v3/files/${encodeURIComponent(videoId)}?alt=media&supportsAllDrives=true`,
+      token,
     });
   } catch (err) {
     console.error('Stream error:', err.message);
 
-    // Google API error responses have a `code` field
     const status = err.code || err.response?.status;
 
     if (status === 404) {

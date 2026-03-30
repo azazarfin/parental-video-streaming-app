@@ -16,7 +16,7 @@ async function checkWatchLimit(req, res, next) {
       return res.status(400).json({ error: 'userId is required (query param or x-user-id header).' });
     }
 
-    const user = await User.findById(userId);
+    const user = await User.findById(userId).lean();
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
@@ -33,7 +33,15 @@ async function checkWatchLimit(req, res, next) {
     if (isNewDayBD(user.lastWatchedDate)) {
       user.totalWatchedToday = 0;
       user.lastWatchedDate = new Date();
-      await user.save();
+      await User.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            totalWatchedToday: user.totalWatchedToday,
+            lastWatchedDate: user.lastWatchedDate
+          }
+        }
+      );
     }
 
     // Get today's limit based on weekday/weekend schedule

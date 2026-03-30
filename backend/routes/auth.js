@@ -67,4 +67,44 @@ router.post('/verify', async (req, res) => {
   }
 });
 
+/**
+ * POST /api/auth/refresh
+ * Called every time the mobile app launches. Generates a brand-new session token
+ * for the given userId, making this device the active one. Any other device
+ * holding the old token is instantly kicked (single-device enforcement).
+ */
+router.post('/refresh', async (req, res) => {
+  try {
+    const { userId } = req.body;
+
+    if (!userId) {
+      return res.status(400).json({ error: 'userId is required.' });
+    }
+
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ error: 'User not found.' });
+    }
+
+    // Generate a fresh session token — old token on any other device is now invalid
+    const sessionToken = crypto.randomBytes(32).toString('hex');
+    user.activeSessionToken = sessionToken;
+    await user.save();
+
+    return res.json({
+      sessionToken,
+      user: {
+        _id: user._id,
+        username: user.username,
+        watchSchedule: user.watchSchedule,
+        totalWatchedToday: user.totalWatchedToday,
+        lastWatchedDate: user.lastWatchedDate,
+      },
+    });
+  } catch (err) {
+    console.error('Refresh error:', err);
+    return res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
 module.exports = router;

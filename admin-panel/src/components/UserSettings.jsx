@@ -109,11 +109,15 @@ export default function UserSettings() {
                     <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 4 }}>
                       <span style={{ fontSize: 18 }}>👤</span>
                       <h3 style={{ fontSize: 18, fontWeight: 700, color: '#e2e8f0' }}>{user.username}</h3>
-                      {user.activeSessionToken ? (
-                        <span className="badge badge-success"><span className="pulse-dot" /> Online</span>
-                      ) : (
-                        <span className="badge" style={{ background: 'rgba(100,116,139,0.15)', color: '#94a3b8', border: '1px solid rgba(100,116,139,0.3)' }}>Offline</span>
-                      )}
+                      {(() => {
+                        const hasRecentHeartbeat = user.lastWatchedDate && (Date.now() - new Date(user.lastWatchedDate).getTime() < 5 * 60 * 1000);
+                        const isActuallyOnline = !!user.activeSessionToken && hasRecentHeartbeat;
+                        return isActuallyOnline ? (
+                          <span className="badge badge-success"><span className="pulse-dot" /> Online</span>
+                        ) : (
+                          <span className="badge" style={{ background: 'rgba(100,116,139,0.15)', color: '#94a3b8', border: '1px solid rgba(100,116,139,0.3)' }}>Offline</span>
+                        );
+                      })()}
                     </div>
                     <p style={{ fontSize: 12, color: '#64748b', fontFamily: 'monospace' }}>ID: {user._id}</p>
                   </div>
