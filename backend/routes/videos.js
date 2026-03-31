@@ -33,7 +33,7 @@ router.get('/', async (req, res) => {
 
     // Pagination
     const page = Math.max(1, parseInt(req.query.page) || 1);
-    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit) || 30));
+    const limit = Math.min(2000, Math.max(1, parseInt(req.query.limit) || 30));
     const skip = (page - 1) * limit;
 
     const [videos, totalCount] = await Promise.all([
