@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 
 const API_URL = import.meta.env.VITE_API_URL;
 
-export default function Analytics() {
+function UserAnalyticsSection({ username }) {
   const [data, setData] = useState(null);
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -18,7 +18,7 @@ export default function Analytics() {
   const fetchHourlyData = async (dateStr) => {
     setHourlyLoading(true);
     try {
-      const res = await fetch(`${API_URL}/analytics/hourly?date=${dateStr}`);
+      const res = await fetch(`${API_URL}/analytics/hourly?date=${dateStr}&username=${username}`);
       if (res.ok) setHourlyData(await res.json());
     } catch (err) {
       console.error(err);
@@ -131,18 +131,66 @@ export default function Analytics() {
 
   useEffect(() => {
     fetchAnalytics();
+    if (selectedDate) fetchHourlyData(selectedDate);
     const intervalId = setInterval(fetchAnalytics, 10000); // Poll every 10s
     return () => clearInterval(intervalId);
-  }, []);
+  }, [username]);
 
   const fetchAnalytics = async () => {
     try {
       const [analyticsRes, sessionsRes] = await Promise.all([
-        fetch(`${API_URL}/analytics`),
-        fetch(`${API_URL}/analytics/sessions?limit=50`),
+        fetch(`${API_URL}/analytics?username=${username}`),
+        fetch(`${API_URL}/analytics/sessions?limit=200&username=${username}`),
       ]);
-      if (analyticsRes.ok) setData(await analyticsRes.json());
-      if (sessionsRes.ok) setSessions(await sessionsRes.json());
+
+      let filteredSessions = [];
+      if (sessionsRes.ok) {
+        const rawSessions = await sessionsRes.json();
+        filteredSessions = rawSessions.filter(s => s.username === username);
+        setSessions(filteredSessions);
+      }
+
+      if (analyticsRes.ok) {
+        const raw = await analyticsRes.json();
+        // Client-side filter currentStatus
+        raw.currentStatus = raw.currentStatus.filter(u => u.username === username);
+
+        // Rebuild aggregates from filtered sessions only
+        const dailyMap = {};
+        const videoMap = {};
+        const dowMap = {
+          Sunday: 0, Monday: 0, Tuesday: 0, Wednesday: 0,
+          Thursday: 0, Friday: 0, Saturday: 0,
+        };
+
+        filteredSessions.forEach(s => {
+          const bdTime = new Date(new Date(s.watchedAt).getTime() + 6 * 60 * 60 * 1000);
+          const dateStr = bdTime.toISOString().slice(0, 10);
+          const minutes = (s.durationSeconds || 0) / 60;
+
+          // Daily
+          if (!dailyMap[dateStr]) dailyMap[dateStr] = { date: dateStr, totalMinutes: 0, sessions: 0 };
+          dailyMap[dateStr].totalMinutes += minutes;
+          dailyMap[dateStr].sessions += 1;
+
+          // Per video
+          const title = s.videoTitle || 'Unknown';
+          if (!videoMap[title]) videoMap[title] = { title, totalMinutes: 0, sessions: 0 };
+          videoMap[title].totalMinutes += minutes;
+          videoMap[title].sessions += 1;
+
+          // Day of week
+          if (s.dayOfWeek && dowMap[s.dayOfWeek] !== undefined) {
+            dowMap[s.dayOfWeek] += minutes;
+          }
+        });
+
+        raw.dailyTotals = Object.values(dailyMap).sort((a, b) => a.date.localeCompare(b.date));
+        raw.perVideo = Object.values(videoMap).sort((a, b) => b.totalMinutes - a.totalMinutes);
+        raw.dayOfWeekTotals = dowMap;
+
+        setData(raw);
+      }
     } catch (err) {
       console.error('Analytics fetch error:', err);
     } finally {
@@ -305,7 +353,7 @@ export default function Analytics() {
   }
 
   return (
-    <div>
+    <div className="glass-card" style={{ padding: 24 }}>
       {/* Tooltip */}
       {tooltip.visible && (
         <div style={{
@@ -493,6 +541,78 @@ export default function Analytics() {
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+export default function Analytics() {
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [selectedUser, setSelectedUser] = useState('');
+
+  useEffect(() => {
+    fetch(`${API_URL}/users`)
+      .then(r => r.json())
+      .then(data => {
+        setUsers(data);
+        if (data.length > 0) setSelectedUser(data[0].username);
+        setLoading(false);
+      })
+      .catch(err => {
+        console.error(err);
+        setLoading(false);
+      });
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="glass-card" style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <p style={{ color: '#94a3b8' }}>Loading users...</p>
+      </div>
+    );
+  }
+
+  if (users.length === 0) {
+    return (
+      <div className="glass-card" style={{ textAlign: 'center', padding: '60px 20px' }}>
+        <p style={{ color: '#94a3b8' }}>No users found.</p>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {/* User selector */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 24 }}>
+        <label style={{ fontSize: 14, fontWeight: 600, color: '#94a3b8', whiteSpace: 'nowrap' }}>
+          📊 Showing analytics for
+        </label>
+        <select
+          value={selectedUser}
+          onChange={(e) => setSelectedUser(e.target.value)}
+          style={{
+            background: 'rgba(30, 41, 59, 0.8)',
+            color: '#e2e8f0',
+            border: '1px solid rgba(129, 140, 248, 0.3)',
+            borderRadius: 10,
+            padding: '10px 16px',
+            fontSize: 15,
+            fontWeight: 700,
+            cursor: 'pointer',
+            outline: 'none',
+            minWidth: 180,
+          }}
+        >
+          {users.map(u => (
+            <option key={u.username} value={u.username}>
+              {u.username}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Render only the selected user's analytics */}
+      <UserAnalyticsSection key={selectedUser} username={selectedUser} />
     </div>
   );
 }

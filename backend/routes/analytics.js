@@ -10,15 +10,25 @@ const { getBangladeshDayName, getTodayLimit, getBangladeshDateString, isNewDayBD
  */
 router.get('/', async (req, res) => {
   try {
-    const users = await User.find();
+    const { username } = req.query;
+    let userQuery = {};
+    if (username && username !== 'all') {
+      userQuery = { username };
+    }
+    const users = await User.find(userQuery);
 
     // Get watch history for the last 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
 
-    const history = await WatchHistory.find({
-      watchedAt: { $gte: thirtyDaysAgo },
-    }).sort({ watchedAt: -1 });
+    const historyQuery = { watchedAt: { $gte: thirtyDaysAgo } };
+    if (username && username !== 'all' && users.length > 0) {
+      historyQuery.user = users[0]._id;
+    } else if (username && username !== 'all') {
+      historyQuery.user = null;
+    }
+
+    const history = await WatchHistory.find(historyQuery).sort({ watchedAt: -1 });
 
     // Aggregate by date (Bangladesh time)
     const dailyTotals = {};
@@ -99,7 +109,19 @@ router.get('/', async (req, res) => {
 router.get('/sessions', async (req, res) => {
   try {
     const limit = parseInt(req.query.limit) || 100;
-    const sessions = await WatchHistory.find()
+    const { username } = req.query;
+    let query = {};
+    
+    if (username && username !== 'all') {
+      const user = await User.findOne({ username });
+      if (user) {
+        query.user = user._id;
+      } else {
+        query.user = null; // force empty
+      }
+    }
+
+    const sessions = await WatchHistory.find(query)
       .sort({ watchedAt: -1 })
       .limit(limit)
       .populate('user', 'username')
@@ -128,6 +150,7 @@ router.get('/sessions', async (req, res) => {
 router.get('/hourly', async (req, res) => {
   try {
     const targetDate = req.query.date;
+    const username = req.query.username;
     if (!targetDate) return res.status(400).json({ error: 'date query parameter required (YYYY-MM-DD)' });
 
     // Initialize 24-hour array
@@ -144,9 +167,17 @@ router.get('/hourly', async (req, res) => {
     const startUTC = new Date(`${targetDate}T00:00:00+06:00`);
     const endUTC = new Date(`${targetDate}T23:59:59.999+06:00`);
 
-    const history = await WatchHistory.find({
-      watchedAt: { $gte: startUTC, $lte: endUTC },
-    });
+    const query = { watchedAt: { $gte: startUTC, $lte: endUTC } };
+    if (username && username !== 'all') {
+      const user = await User.findOne({ username });
+      if (user) {
+        query.user = user._id;
+      } else {
+        query.user = null;
+      }
+    }
+
+    const history = await WatchHistory.find(query);
 
     history.forEach((h) => {
       const bdTime = new Date(new Date(h.watchedAt).getTime() + 6 * 60 * 60 * 1000);

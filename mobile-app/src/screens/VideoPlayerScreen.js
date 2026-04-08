@@ -70,7 +70,6 @@ export default function VideoPlayerScreen({ route, navigation }) {
   const controlsOpacity = useRef(new Animated.Value(1)).current;
   const hideTimerRef = useRef(null);
   const playlistRequestRef = useRef(false);
-  const isPlayingRef = useRef(false);
   const resumePositionRef = useRef(0);
   const lastSavedPositionRef = useRef(0);
   const playerRef = useRef(null);
@@ -123,7 +122,6 @@ export default function VideoPlayerScreen({ route, navigation }) {
 
   const handleLimitReached = useCallback(() => {
     setLimitReached(true);
-    isPlayingRef.current = false;
     setIsBuffering(false);
     try {
       if (playerRef.current) {
@@ -387,9 +385,6 @@ export default function VideoPlayerScreen({ route, navigation }) {
     if (!player) return;
 
     const statusSub = player.addListener('statusChange', (payload) => {
-      const playing = payload.status === 'readyToPlay' && player.playing;
-      isPlayingRef.current = playing;
-
       if (payload.status === 'loading') {
         setIsBuffering(true);
       }
@@ -412,10 +407,6 @@ export default function VideoPlayerScreen({ route, navigation }) {
       }
     });
 
-    const playSub = player.addListener('playingChange', (payload) => {
-      isPlayingRef.current = payload.isPlaying;
-    });
-
     let endSub;
     try {
       endSub = player.addListener('playToEnd', () => {
@@ -435,7 +426,6 @@ export default function VideoPlayerScreen({ route, navigation }) {
 
     return () => {
       statusSub.remove();
-      playSub.remove();
       if (endSub) endSub.remove();
     };
   }, [player, hasResumed, playlist, switchVideo]);
@@ -470,7 +460,7 @@ export default function VideoPlayerScreen({ route, navigation }) {
 
   useEffect(() => {
     const intervalId = setInterval(async () => {
-      if (isPlayingRef.current && !limitReached && sessionToken) {
+      if (player?.playing && !limitReached && sessionToken) {
         try {
           const current = currentVideoRef.current;
           const res = await axios.post(
@@ -502,7 +492,7 @@ export default function VideoPlayerScreen({ route, navigation }) {
     }, 10000);
 
     return () => clearInterval(intervalId);
-  }, [limitReached, userId, sessionToken, logout, handleLimitReached]);
+  }, [player, limitReached, userId, sessionToken, logout, handleLimitReached]);
 
   useEffect(() => {
     return () => {
@@ -753,7 +743,7 @@ export default function VideoPlayerScreen({ route, navigation }) {
           style={{ flex: 1, backgroundColor: '#000' }}
           nativeControls
           contentFit={contentFitValue}
-          allowsFullscreen={false}
+          fullscreenOptions={{ enable: false }}
           allowsPictureInPicture={false}
         />
 
