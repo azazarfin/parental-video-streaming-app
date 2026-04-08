@@ -4,6 +4,7 @@ const User = require('../models/User');
 const WatchHistory = require('../models/WatchHistory');
 const Video = require('../models/Video');
 const { getBangladeshDayName, getTodayLimit, isNewDayBD } = require('../utils/bdTime');
+const checkAppVersion = require('../middleware/versionCheck');
 
 /**
  * POST /api/heartbeat
@@ -15,7 +16,7 @@ const { getBangladeshDayName, getTodayLimit, isNewDayBD } = require('../utils/bd
  * Expected body:
  *   { userId: string, duration: number, sessionToken: string, videoId?: string }
  */
-router.post('/', async (req, res) => {
+router.post('/', checkAppVersion, async (req, res) => {
   try {
     const { userId, duration, sessionToken, videoId } = req.body;
 

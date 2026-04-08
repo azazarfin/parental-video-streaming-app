@@ -4,11 +4,17 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { StatusBar } from 'expo-status-bar';
 import * as ScreenOrientation from 'expo-screen-orientation';
 import { View, ActivityIndicator, StyleSheet } from 'react-native';
+import axios from 'axios';
+import Constants from 'expo-constants';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ThemeProvider, useTheme } from './src/context/ThemeContext';
 import LoginScreen from './src/screens/LoginScreen';
 import HomeScreen from './src/screens/HomeScreen';
 import VideoPlayerScreen from './src/screens/VideoPlayerScreen';
+
+// Send app version with every API request so the backend can block old versions
+const APP_VERSION = Constants.expoConfig?.version || '0.0.0';
+axios.defaults.headers.common['x-app-version'] = APP_VERSION;
 
 const Stack = createNativeStackNavigator();
 

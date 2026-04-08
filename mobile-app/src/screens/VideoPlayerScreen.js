@@ -345,7 +345,14 @@ export default function VideoPlayerScreen({ route, navigation }) {
           headers: res.data.token ? { Authorization: `Bearer ${res.data.token}` } : undefined,
         });
       } catch (err) {
-        if (err.response?.status === 403) {
+        if (err.response?.status === 426) {
+          Alert.alert(
+            'Update Required',
+            err.response.data?.error || 'Please update the app to the latest version.',
+            [{ text: 'OK', onPress: () => navigation.goBack() }]
+          );
+          setIsBuffering(false);
+        } else if (err.response?.status === 403) {
           if (err.response.data?.kicked) {
             Alert.alert('Session Expired', 'Another device has logged in.', [
               { text: 'OK', onPress: () => logout() },

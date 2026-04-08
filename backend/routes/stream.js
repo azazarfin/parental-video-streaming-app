@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { getDriveClient, resetDriveClient } = require('../services/googleDrive');
 const checkWatchLimit = require('../middleware/watchLimit');
+const checkAppVersion = require('../middleware/versionCheck');
 
 /**
  * GET /api/stream/:videoId
@@ -10,7 +11,7 @@ const checkWatchLimit = require('../middleware/watchLimit');
  * The mobile app streams directly from Google Drive to avoid
  * backend bandwidth costs on free hosting.
  */
-router.get('/:videoId', checkWatchLimit, async (req, res) => {
+router.get('/:videoId', checkAppVersion, checkWatchLimit, async (req, res) => {
   const { videoId } = req.params;
 
   try {

@@ -7,7 +7,8 @@ const app = express();
 const PORT = process.env.PORT || 5000;
 
 // Configure CORS to accept requests from specific origin
-const allowedOrigins = ['https://streamingapp-admin.netlify.app', 'http://localhost:5173', 'http://localhost:3000'];
+const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+const allowedOrigins = [frontendUrl, 'http://localhost:3000', 'http://localhost:5173'];
 app.use(cors({
   origin: function(origin, callback) {
     if (!origin || allowedOrigins.indexOf(origin) !== -1) {
